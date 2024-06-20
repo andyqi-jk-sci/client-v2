@@ -1,16 +1,17 @@
 //Main header used in MainApp
-import React, { useContext } from "react";
+import React, { useEffect, useContext } from "react";
 import LogoContainer from "../LogoContainer";
 import "./Header3.sass";
 
 import { AppContext } from "../../contexts";
-import Login from "../Login";
 
 function LoggedIn({ username }) {
+  //const {handleLogout} = useAuth();
+
   return (
     <div style={{ display: "flex", flexFlow: "row nowrap", alignItems: "flex-end", marginRight: "0.5em" }}>
       <div className="username141 notosanssc-normal-black-16px" style={{ width: "8em" }}>
-        {"Logout"}
+        <a onClick={() => {console.log("handleLogout")}}>Logout</a>
       </div>
       <div className="username141 notosanssc-normal-black-16px" style={{ width: "15em" }}>
         {username}
@@ -23,7 +24,7 @@ function LoggedOut() {
   return (
     <div style={{ display: "flex", flexFlow: "row nowrap", alignItems: "flex-end", marginRight: "0.5em" }}>
       <div className="username141 notosanssc-normal-black-16px">
-        {"Not logged in"}
+        <a href="/login">Login</a>
       </div>
     </div>
   );
@@ -31,17 +32,19 @@ function LoggedOut() {
 
 function Header3(props) {
   const { logoContainerProps } = props;
-  const { loginInfo } = useContext(AppContext);
-  const { account, loggedIn } = loginInfo;
+  const { auth } = useContext(AppContext);
 
-  //const { account, authorized } = React.useContext(LoginContext) || {};
-  console.log("header3 authorized?", loggedIn);
+  const { account, loading } = auth;
+  useEffect(() => {
+      console.log("account info", account);
+  }, [account]);
+
   return (
     <header className="header-1" style={{ width: "100%" }}>
       <LogoContainer jK={logoContainerProps.jK} className={logoContainerProps.className} />
       {
-        (loginInfo.loading) ? "Authenticating..."
-        : (loggedIn) ? <LoggedIn username={account?.username ?? "Unknown username"} />
+        (loading) ? "Authenticating..."
+        : (account) ? <LoggedIn username={account?.username ?? "Unknown username"} />
         : <LoggedOut />
       }
     </header>

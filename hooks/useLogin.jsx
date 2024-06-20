@@ -1,111 +1,75 @@
-import React, { useMemo, useEffect, useState } from "react";
-import useFetch from "./useFetch";
+import { useMemo, useEffect, useState } from "react";
+import { useQuery, useMutation } from '@tanstack/react-query';
 import jwt from 'jsonwebtoken';
-import useAsync from "./useAsync";
 
 const prefixUrl = process.env.REACT_APP_API_URL + "/api/auth";
 
-/**
- * Custom login hook to handle all API calls regarding authentication, and reading of acceessToken
- * One global instance of this hook should be used and propagated down to any child that references it
- * @param {*} props 
- * @returns 
- */
 export default function useLogin(props) {
     const doAuthorize = props.doAuthorize ?? false;
 
-    const [loggedIn, setLoggedIn] = useState(null);
-    const [accessToken, _setAccessToken] = useState(
-        localStorage.getItem("accessToken")
-    );
+    const [accessToken, setAccessToken] = useState(localStorage.getItem("accessToken"));
     const [result, setResult] = useState(null);
-    const loginFetch = useFetch();
-    const signupFetch = useFetch();
-    const signupFetch2 = useAsync();
-    const authFetch = useFetch();
-    const logoutFetch = useFetch();
-    const loading = [
-        loginFetch, signupFetch, signupFetch2, authFetch, logoutFetch
-    ].some(s => s.loading);
 
-    const setAccessToken = (tok) => {
-        localStorage.setItem("accessToken", tok);
-        _setAccessToken(tok);
-    };
-
-    const account = useMemo(() => {
-        return (accessToken) ? jwt.decode(accessToken) : null;
-    }, [accessToken]);
-
-    console.info("useLogin accessToken", accessToken);
-    console.info("local accessToken", localStorage.getItem("accessToken"))
-
-    /** authorizes user to ensure accessToken and cookies are still valid */
-    const authorize = () => {
-        if (!accessToken) {
-            console.log("No accessToken when calling authorize() ");
-            return;
+    const { data: accountData, isLoading: isAuthorizing } = useQuery({
+        queryKey: ['authorize', accessToken],
+        queryFn: async () => {
+            if (!accessToken) return null;
+            const response = await fetch(`${prefixUrl}/authorize-user`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                mode: 'cors',
+                credentials: "include"
+            });
+            if (!response.ok) {
+                throw new Error("Invalid access token");
+            }
+            return response.json();
+        },
+        enabled: doAuthorize && !!accessToken,
+        onError: (error) => {
+            console.error("Invalid access token:", error);
         }
+    });
+    const loggedIn = useMemo(() => {
+        return !!accountData;
+    }, [accountData]);
 
-        authFetch.run(`${prefixUrl}/authorize-user`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${accessToken}`
-            },
-            mode: 'cors',
-            credentials: "include"
-        }, (data) => {
-            console.log("account data", data);
-            setLoggedIn(true);
-            // setResult((prev) => ({
-            //     "success": true,
-            //     "method": "authorize"
-            // }))
-        }, (error) => {
-            console.error("invalid access token:", error);
-            // setResult((prev) => ({
-            //     "success": false,
-            //     "method": "authorize"
-            // }))
-        });
-    }
+    const { data: signUpResult, mutateAsync: handleSignUp, isLoading: isSigningUp } = useMutation({
+        mutationFn: async (formData) => {
+            const { username, password, orgId, email, phoneNumber, isMain } = formData;
+            const response = await fetch(`${prefixUrl}/signup`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors',
+                body: JSON.stringify({
+                    username,
+                    password,
+                    orgId,
+                    email,
+                    phoneNumber,
+                    isMain
+                })
+            });
+            if (!response.ok) {
+                throw new Error("Signup failed");
+            }
+            setResult({ success: true, method: "handleSignUp" });
+        },
+        onError: (error) => {
+            console.error("Signup error:", error);
+            setResult({ success: false, method: "handleSignUp" });
+        }
+    });
 
-    const handleSignUp = (formData) => {
-        const { username, password, orgId, email, phoneNumber, isMain } = formData;
-        signupFetch.run(`${prefixUrl}/signup`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            mode: 'cors',
-            body: JSON.stringify({
-                username,
-                password,
-                orgId,
-                email,
-                phoneNumber,
-                isMain
-            })
-        }, (data) => {
-            console.log("signup success", data);
-            setResult((prev) => ({
-                "success": true,
-                "method": "handleSignUp"
-            }));
-        }, (error) => {
-            console.error("signup error", error);
-            setResult((prev) => ({
-                "success": false,
-                "method": "handleSignUp"
-            }));
-        });
-    };
-
-    const handleSignUpAdmin = (formData) => {
-        const { username, password, orgId, email, phoneNumber, isMain } = formData;
-        signupFetch2.run(
-            () => fetch(`${prefixUrl}/signup-admin`, {
+    const { data: signUpAdminResult, mutateAsync: handleSignUpAdmin, isLoading: isSigningUpAdmin } = useMutation({
+        mutationFn: async (formData) => {
+            const { username, password, orgId, email, phoneNumber, isMain } = formData;
+            const response = await fetch(`${prefixUrl}/signup-admin`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -119,62 +83,84 @@ export default function useLogin(props) {
                     phoneNumber: String(phoneNumber ?? ""),
                     isMain: true
                 })
-            }).then(async (res) => {
-                if (!res.ok) {
-                    throw new Error(res.status);
-                }
-                const r = await res.text();
-                console.log("signup done", r)
-                return fetch(`${prefixUrl}/user-role-v2`, {
-                    method: "POST",
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    mode: 'cors',
-                    body: JSON.stringify({
-                        "username": username,
-                        "roleName": "Admin"
-                    })
-                })
-            }).then(async (res) => {
-                const r = await res.json();
-                console.log("assign role done", r);
-                setResult((prev) => ({
-                    "success": true,
-                    "method": "handleSignUpAdmin"
-                }));
-            }).catch((err) => {
-                console.error(err);
-                setResult((prev) => ({
-                    "success": false,
-                    "method": "handleSignUpAdmin"
-                }));
-            })
-        );
-    }
-
-    const handleLogin = (formData) => {
-        const { username, password } = formData;
-        loginFetch.run(`${prefixUrl}/login`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            mode: 'cors',
-            body: JSON.stringify({ username, password }),
-            credentials: "include"
-        }, (data) => {
-            if (!data?.['accessToken']) {
-                console.error("Login failed. No access token found.");
-                return;
+            });
+            if (!response.ok) {
+                throw new Error("Admin signup failed");
             }
+            const data = await response.text();
+            console.log("Admin signup done:", data);
+            const response_1 = await fetch(`${prefixUrl}/user-role-v2`, {
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors',
+                body: JSON.stringify({
+                    username,
+                    roleName: "Admin"
+                })
+            });
+            if (!response_1.ok) {
+                throw new Error("Assigning admin role failed");
+            }
+            const data_1 = await response_1.json();
+            console.log("Assign role done:", data_1);
+            setResult({ success: true, method: "handleSignUpAdmin" });
+        },
+        onError: (error) => {
+            console.error("Admin signup error:", error);
+            setResult({ success: false, method: "handleSignUpAdmin" });
+        }
+    });
 
+    const { data: loginResult, mutateAsync: handleLogin, isLoading: isLoggingIn } = useMutation({
+        mutationFn: async (formData) => {
+            const { username, password } = formData;
+            const response = await fetch(`${prefixUrl}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors',
+                body: JSON.stringify({ username, password }),
+                credentials: "include"
+            });
+            if (!response.ok) {
+                throw new Error("Login failed");
+            }
+            const data = await response.json();
+            if (!data?.['accessToken']) {
+                throw new Error("Login failed. No access token found.");
+            }
             setAccessToken(data['accessToken']);
-            setLoggedIn(true);
-        }, (error) => {
-            console.error("login error", error);
-        });
-    };
+            return data;
+        },
+        onError: (error) => {
+            console.error("Login error:", error);
+        }
+    });
+
+    const { data: logoutResult, mutateAsync: handleLogout } = useMutation({
+        mutationFn: async () => {
+            const response = await fetch(`${prefixUrl}/logout`, {
+                method: 'POST',
+                mode: "cors",
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+            if (!response.ok) {
+                throw new Error("Logout failed");
+            }
+            removeTokens();
+            return response;
+        },
+        onError: (error) => {
+            console.error("Logout error:", error);
+        }
+    });
 
     const removeTokens = () => {
         [sessionStorage, localStorage].forEach(s => {
@@ -182,42 +168,28 @@ export default function useLogin(props) {
             s.removeItem("accessToken");
         });
         setAccessToken(null);
-    }
+    };
 
-    const handleLogout = () => {
-        logoutFetch.run(`${prefixUrl}/logout`, {
-            method: 'POST',
-            mode: "cors",
-            credentials: 'include',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${accessToken}`
-            }
-        }, (data) => {
-            console.log("logout:", data);
-            removeTokens();
-        }, (error) => {
-            console.log("logout error", error);
-            return;
-        });
-    }
+    const account = useMemo(() => {
+        return accessToken ? jwt.decode(accessToken) : null;
+    }, [accessToken]);
 
     useEffect(() => {
         if (doAuthorize && accessToken) {
-            console.log("authorizing...")
-            authorize();
+            console.log("Authorizing...");
         }
     }, [accessToken]);
+
+    const loading = isAuthorizing || isSigningUp || isSigningUpAdmin || isLoggingIn;
 
     return {
         account,
         loading,
-        authorize, loggedIn,
+        loggedIn,
         handleLogin,
         handleLogout,
         handleSignUp,
         handleSignUpAdmin,
         result,
-        loginFetch, signupFetch, signupFetch2, authFetch, logoutFetch
     };
 }

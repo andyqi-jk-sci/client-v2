@@ -1,8 +1,12 @@
 import { createContext, useState, useEffect } from "react";
 import { SideNavProvider } from "./SideNavContext";
-import useLogin from "hooks/useLogin";
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import useAuth from "hooks/useAuth";
 
 const AppContext = createContext();
+
+const queryClient = new QueryClient();
 
 /**
  * 
@@ -6130,18 +6134,19 @@ function AppProvider({ children }) {
         }
     })();
 
-    const loginInfo = useLogin({
-        doAuthorize: true
-    });
-
+    const auth = useAuth();
     const value = {
         constants,
-        loginInfo
-    }
+        queryClient,
+        auth
+    };
 
     return (
         <AppContext.Provider value={value}>
-            <SideNavProvider>{children}</SideNavProvider>
+            <QueryClientProvider client={queryClient}>
+                <SideNavProvider>{children}</SideNavProvider>
+                <ReactQueryDevtools initialIsOpen={false} />
+            </QueryClientProvider>
         </AppContext.Provider>
     );
 }
